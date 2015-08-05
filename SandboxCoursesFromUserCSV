@@ -1,0 +1,137 @@
+$sourceDir = "C:\Users\Username\" #this is source directory literal path
+$userCsvFile = "users.csv" # The file name for the users in. Should have first_name and last_name header columns
+$preText = "SBox -" # prepends "First Name" +  "Last Name" values 
+$postText = "" # PostPends "First Name" +  "Last Name" values
+
+$outputPath = "C:\Users\Username\output\" #output path for the zip file creation
+$outputZip = "SBxCourse_csv.zip" # name of the zip file to create
+
+$account_id = "self"
+$token = "<Access Token>" # access_token
+$domain = "<CanvasInstance>.instructure.com"
+
+##################################################################################
+###### Don't edit anything after this line unless you know the consequences ######
+##################################################################################
+
+$url = "https://$domain/api/v1/accounts/"+$account_id+"/sis_imports.json?import_type=instructure_csv"
+$headers = @{"Authorization"="Bearer "+$token}
+
+# Just in case $sourceDir doesn't end with a \, add it.
+if(!($sourceDir.EndsWith('\'))){
+    $sourceDir += "\"
+    Write-Host "You sourceDir didn't end with a \ so I added one.  It really is important"
+}
+if($outputZip.Contains('\')){
+    Write-Host "The outputZip should not contain backslashes.  You are warned"
+}
+
+###### Some functions
+
+
+#############################
+# Declare an arrays to collect objects
+$coursesDataArray =@()
+$enrollmentDataArray =@()
+$sectionDataArray =@()
+
+#######
+## Read the user file
+$FilePath = $sourceDir + $userCSVFile
+Clear-Host
+$Users = Import-CSV $FilePath 
+
+
+# $contacts will  be the ‘loop counter’, so set it to the same as any of our variables;  will do
+#$contacts=$AdAccountname
+
+
+ForEach ($user in $Users) {
+## Not Applicable ??? :Write-Host $user =.user_id `n
+
+# Create a new custom object to hold our result.
+$courseObject = new-object PSObject
+$enrollmentObject = new-object PSObject
+$sectionObject = New-Object PSObject
+
+
+# Add our data to $courseObject as attributes using the add-member commandlet
+# course_id,short_name,long_name,account_id,term_id,status
+# The Best way to add in values $($assoc.Id)  -  $($assoc.Name)  -  $($assoc.Owner)"
+$courseObject | add-member -membertype NoteProperty -name "course_id" -Value $user.user_id 
+$courseObject | add-member -membertype NoteProperty -name "short_name" -Value "$($preText)$($user.first_name) $($user.last_name)$($postText)"
+$courseObject | add-member -membertype NoteProperty -name "long_name" -Value "$($preText)$($user.first_name) $($user.last_name)$($postText)"  
+$courseObject | add-member -membertype NoteProperty -name "account_id" -Value "1"
+$courseObject | add-member -membertype NoteProperty -name "status" -Value "active"
+
+# Add our data to $sectionObject as attributes using the add-member commandlet
+# section_id, course_id, name, status
+# The Best way to add in values $($assoc.Id)  -  $($assoc.Name)  -  $($assoc.Owner)"
+$sectionObject | add-member -membertype NoteProperty -name "section_id" -Value $user.user_id 
+$sectionObject | add-member -membertype NoteProperty -name "course_id" -Value $user.user_id
+$sectionObject | add-member -membertype NoteProperty -name "name" -Value "$($preText)$($user.full_name)$($postText)"
+$sectionObject | add-member -membertype NoteProperty -name "status" -Value "active"
+
+# Add our data to $enrollmentObject as attributes using the add-member commandlet
+# course_id,user_id,role,section_id,status
+
+$enrollmentObject | add-member -membertype NoteProperty -name "course_id" -Value $user.user_id 
+$enrollmentObject | add-member -membertype NoteProperty -name "user_id" -Value $user.user_id
+$enrollmentObject | add-member -membertype NoteProperty -name "role" -Value "teacher"
+$enrollmentObject | add-member -membertype NoteProperty -name "section_id" -Value $user.user_id
+$enrollmentObject | add-member -membertype NoteProperty -name "status" -Value "active"
+
+# Save the current $contactObject by appending it to $resultsArray ( += means append a new element to ‘me’)
+## $resultsarray += $contactObject
+
+$coursesDataArray += $courseObject
+$sectionDataArray += $sectionObject
+$enrollmentDataArray += $enrollmentObject
+}
+
+$coursesDataArray | Export-csv courses.csv -notypeinformation
+$sectionDataArray | Export-csv sections.csv -notypeinformation
+$enrollmentDataArray| Export-csv enrollments.csv -notypeinformation
+
+#########################
+###
+###  Create the Zip File
+###
+########################
+
+$contentType = "application/zip"# don't change
+$InFile = $outputPath+$outputZip # don't change
+$getZipFiles =  $sourceDir+"*.csv" # don't change
+write-zip -Path $getZipFiles -OutputPath $InFile
+
+####################
+###
+### Upload the Zip File to Canvas
+###
+####################
+
+$url = "https://$domain/api/v1/accounts/"+$account_id+"/sis_imports.json?import_type=instructure_csv"
+$headers = @{"Authorization"="Bearer "+$token}
+
+
+$results1 = (Invoke-WebRequest -Headers $headers -InFile $InFile -Method POST -ContentType $contentType -Uri $url) #-PassThru -OutFile $outputPath$t"-status.log"
+
+############################
+
+#$results1.Content | Out-File $status_log_path
+##$results = ($results1.Content | ConvertFrom-Json)
+#$results.id | Out-String
+##do{
+##  Write-Host $status_line
+##  $status_url = "https://$domain/api/v1/accounts/"+$account_id+"/sis_imports/"+$results.id
+##  $results1 = (Invoke-WebRequest -Headers $headers -Method GET -Uri $status_url) #-PassThru -OutFile $outputPath$t"-status.log"
+  #$results1.Content | Out-File -Append $status_log_path
+##  $results = ($results1.Content | ConvertFrom-Json)
+##  Start-Sleep -s 5
+  #$results.id | Out-String
+## if($results -eq $null){
+##    break
+##  }
+##}
+##while($results.progress -lt 100 -and $results.workflow_state -ne "failed_with_messages")
+#$results1.Content | Out-File -Append $status_log_path]
